@@ -524,7 +524,6 @@ def prepare_filter_triples(
 
     return torch.cat([*additional_filter_triples, mapped_triples], dim=0).unique(dim=0)
 
-batch_prediction = {}
 # TODO: consider switching to torch.DataLoader where the preparation of masks/filter batches also takes place
 def evaluate(
     model: Model,
@@ -679,7 +678,6 @@ def evaluate(
         for batch_ind, batch in enumerate(batches):
             batch_size = batch.shape[0]
             relation_filter = None
-            batch_prediction[batch_ind] = {}
             for target in targets:
                 relation_filter = _evaluate_batch(
                     batch=batch,
@@ -702,7 +700,6 @@ def evaluate(
 
             if use_tqdm:
                 progress_bar.update(batch_size)
-        torch.save(batch_prediction,"my_batch_scores.pt")
         # Finalize
         result = evaluator.finalize()
 
@@ -753,8 +750,6 @@ def _evaluate_batch(
         The relation filter, which can be re-used for the same batch.
     """
     scores = model.predict(hrt_batch=batch, target=target, slice_size=slice_size, mode=mode)
-    batch_prediction[batch_ind][target+"_before_filtering"] = scores
-    batch_prediction[batch_ind]["batch"] = batch
 
 
     if evaluator.filtered:
@@ -777,8 +772,6 @@ def _evaluate_batch(
         true_scores = scores[torch.arange(0, batch.shape[0]), batch[:, column].long()]
         # overwrite filtered scores
         scores = filter_scores_(scores=scores, filter_batch=positive_filter)
-
-        batch_prediction[batch_ind][target + "_after_filtering"] = scores
         # The scores for the true triples have to be rewritten to the scores tensor
         scores[torch.arange(0, batch.shape[0]), batch[:, column].long()] = true_scores
         # the rank-based evaluators needs the true scores with trailing 1-dim
