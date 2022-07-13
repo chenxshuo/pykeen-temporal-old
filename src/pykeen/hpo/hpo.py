@@ -39,6 +39,8 @@ from ..typing import Hint, HintType
 from ..utils import Result, ensure_ftp_directory, fix_dataclass_init_docs, get_df_io, get_json_bytes_io
 from ..version import get_git_hash, get_version
 
+from pykeen_temporal.training.slcwa_temporal import SLCWATemporalTrainingLoop
+
 __all__ = [
     "hpo_pipeline_from_path",
     "hpo_pipeline_from_config",
@@ -210,7 +212,7 @@ class Objective:
             )
 
         _negative_sampler_kwargs: Mapping[str, Any]
-        if self.training_loop is not SLCWATrainingLoop:
+        if self.training_loop is not SLCWATrainingLoop and self.training_loop is not SLCWATemporalTrainingLoop:
             _negative_sampler_kwargs = {}
         elif self.negative_sampler is None:
             raise ValueError("Negative sampler class must be made explicit when training under sLCWA")
@@ -391,7 +393,7 @@ class HpoPipelineResult(Result):
         best_pipeline_directory.mkdir(exist_ok=True, parents=True)
         # Output best trial as pipeline configuration file
         with best_pipeline_directory.joinpath("pipeline_config.json").open("w") as file:
-            json.dump(self._get_best_study_config(), file, indent=2, sort_keys=True)
+            json.dump(self._get_best_study_config(), file, indent=2, sort_keys=True, default=str)
 
     def save_to_ftp(self, directory: str, ftp: ftplib.FTP):
         """Save the results to the directory in an FTP server.
@@ -726,7 +728,7 @@ def hpo_pipeline(
     study.set_user_attr("training_loop", training_loop_cls.get_normalized_name())
     logger.info(f"Using training loop: {training_loop_cls}")
     negative_sampler_cls: Optional[Type[NegativeSampler]]
-    if training_loop_cls is SLCWATrainingLoop:
+    if training_loop_cls is SLCWATrainingLoop or training_loop_cls is SLCWATemporalTrainingLoop:
         negative_sampler_cls = negative_sampler_resolver.lookup(negative_sampler)
         assert negative_sampler_cls is not None
         study.set_user_attr("negative_sampler", negative_sampler_cls.get_normalized_name())

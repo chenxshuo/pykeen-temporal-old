@@ -4,9 +4,14 @@
 
 import dataclasses
 import logging
+import pathlib
+import tempfile
+import os
 from dataclasses import dataclass
 from typing import Any, Callable, List, Mapping, Optional, Union
+from uuid import uuid4
 
+import torch
 from .stopper import Stopper
 from ..evaluation import Evaluator
 from ..models import Model
@@ -120,6 +125,12 @@ class EarlyStoppingLogic:
         # stop if the result did not improve more than delta for patience evaluations
         return self.remaining_patience <= 0
 
+    @property
+    def is_best(self) -> bool:
+        """Return whether the current result is the (new) best result."""
+        return self.remaining_patience == self.patience
+
+
 
 @fix_dataclass_init_docs
 @dataclass
@@ -161,6 +172,8 @@ class EarlyStopper(Stopper):
     stopped_callbacks: List[StopperCallback] = dataclasses.field(default_factory=list, repr=False)
     #: Did the stopper ever decide to stop?
     stopped: bool = False
+    #: the path to the weights of the best model
+    best_model_path: Optional[pathlib.Path] = None
 
     _stopper: EarlyStoppingLogic = dataclasses.field(init=False, repr=False)
 
@@ -174,6 +187,8 @@ class EarlyStopper(Stopper):
             relative_delta=self.relative_delta,
             larger_is_better=self.larger_is_better,
         )
+        if self.best_model_path is None:
+            self.best_model_path = pathlib.Path(tempfile.gettempdir(), f"best-model-weights-{uuid4()}.pt")
 
     @property
     def remaining_patience(self) -> int:
@@ -238,7 +253,16 @@ class EarlyStopper(Stopper):
             )
             for stopped_callback in self.stopped_callbacks:
                 stopped_callback(self, result, epoch)
+            logger.info(f"Re-loading weights from best epoch from {self.best_model_path}")
+            self.model.load_state_dict(torch.load(self.best_model_path))
             return True
+
+        if self._stopper.is_best:
+            assert self.best_model_path is not None
+            torch.save(self.model.state_dict(), self.best_model_path)
+            logger.info(
+                f"New best result at epoch {epoch}: {self.best_metric}. Saved model weights to {self.best_model_path}",
+            )
 
         for continue_callback in self.continue_callbacks:
             continue_callback(self, result, epoch)
