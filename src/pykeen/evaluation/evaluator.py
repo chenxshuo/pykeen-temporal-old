@@ -147,6 +147,10 @@ class Evaluator(ABC):
         """Compute the final results, and clear buffers."""
         raise NotImplementedError
 
+    @staticmethod
+    def _create_sparse_positive_filter(*args, **kwargs):
+        return create_sparse_positive_filter_(*args, **kwargs)
+
     def evaluate(
         self,
         model: Model,
@@ -520,7 +524,6 @@ def prepare_filter_triples(
 
     return torch.cat([*additional_filter_triples, mapped_triples], dim=0).unique(dim=0)
 
-
 # TODO: consider switching to torch.DataLoader where the preparation of masks/filter batches also takes place
 def evaluate(
     model: Model,
@@ -672,7 +675,7 @@ def evaluate(
         _tqdm_kwargs.update(tqdm_kwargs)
     with optional_context_manager(use_tqdm, tqdm(**_tqdm_kwargs)) as progress_bar, torch.inference_mode():
         # batch-wise processing
-        for batch in batches:
+        for batch_ind, batch in enumerate(batches):
             batch_size = batch.shape[0]
             relation_filter = None
             for target in targets:
@@ -686,6 +689,7 @@ def evaluate(
                     relation_filter=relation_filter,
                     restrict_entities_to=restrict_entities_to,
                     mode=mode,
+                    batch_ind=batch_ind
                 )
 
             # If we only probe sizes we do not need more than one batch
@@ -696,7 +700,6 @@ def evaluate(
 
             if use_tqdm:
                 progress_bar.update(batch_size)
-
         # Finalize
         result = evaluator.finalize()
 
@@ -720,6 +723,8 @@ def _evaluate_batch(
     restrict_entities_to: Optional[torch.LongTensor],
     *,
     mode: Optional[InductiveMode],
+    batch_ind:int = 0
+
 ) -> torch.BoolTensor:
     """
     Evaluate ranking for batch.
@@ -746,6 +751,7 @@ def _evaluate_batch(
     """
     scores = model.predict(hrt_batch=batch, target=target, slice_size=slice_size, mode=mode)
 
+
     if evaluator.filtered:
         column = TARGET_TO_INDEX[target]
         if all_pos_triples is None:
@@ -755,7 +761,7 @@ def _evaluate_batch(
             )
 
         # Create filter
-        positive_filter, relation_filter = create_sparse_positive_filter_(
+        positive_filter, relation_filter = evaluator._create_sparse_positive_filter(
             hrt_batch=batch,
             all_pos_triples=all_pos_triples,
             relation_filter=relation_filter,
@@ -763,19 +769,19 @@ def _evaluate_batch(
         )
 
         # Select scores of true
-        true_scores = scores[torch.arange(0, batch.shape[0]), batch[:, column]]
+        true_scores = scores[torch.arange(0, batch.shape[0]), batch[:, column].long()]
         # overwrite filtered scores
         scores = filter_scores_(scores=scores, filter_batch=positive_filter)
         # The scores for the true triples have to be rewritten to the scores tensor
-        scores[torch.arange(0, batch.shape[0]), batch[:, column]] = true_scores
+        scores[torch.arange(0, batch.shape[0]), batch[:, column].long()] = true_scores
         # the rank-based evaluators needs the true scores with trailing 1-dim
         true_scores = true_scores.unsqueeze(dim=-1)
     else:
         true_scores = None
 
     # Create a positive mask with the size of the scores from the positive filter
-    if evaluator.requires_positive_mask:
-        positive_filter, relation_filter = create_sparse_positive_filter_(
+    if evaluator.requires_positive_mask: # False
+        positive_filter, relation_filter = evaluator._create_sparse_positive_filter_(
             hrt_batch=batch,
             all_pos_triples=all_pos_triples,
             relation_filter=relation_filter,

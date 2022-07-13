@@ -13,7 +13,7 @@ from torch import linalg, nn
 from torch.nn import functional
 
 from .utils import lp_norm, powersum_norm
-
+import copy
 __all__ = [
     # Base Class
     "Regularizer",
@@ -106,9 +106,13 @@ class Regularizer(nn.Module, ABC):
         if self.tracked_parameters:
             self.update(*self.tracked_parameters)
 
-        term = self.regularization_term
+        # term = self.regularization_term
+        # self.reset()
+        # return self.weight * term
+        result = self.weight * self.regularization_term
+        #print(f"result {result}")
         self.reset()
-        return self.weight * term
+        return result
 
 
 class NoRegularizer(Regularizer):

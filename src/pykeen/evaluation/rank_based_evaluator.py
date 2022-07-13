@@ -306,7 +306,9 @@ class RankBasedEvaluator(Evaluator):
             requires_positive_mask=False,
             **kwargs,
         )
+        # self.ks is the options of k in Hit@k
         self.ks = tuple(ks) if ks is not None else (1, 3, 5, 10)
+        # check whether k meets requirements
         for k in self.ks:
             if isinstance(k, float) and not (0 < k < 1):
                 raise ValueError(
